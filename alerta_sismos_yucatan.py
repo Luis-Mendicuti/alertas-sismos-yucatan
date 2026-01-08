@@ -166,13 +166,14 @@ def municipio_mas_cercano(lat, lon):
 
 def enviar_whatsapp(mensaje):
     try:
-        client.messages.create(
+        msg = client.messages.create(
             from_=os.getenv("FROM_WHATSAPP"),
             to=os.getenv("TO_WHATSAPP"),
             body=mensaje
         )
+        print("Mensaje enviado, SID:", msg.sid)
     except Exception as e:
-        print("Error enviando WhatsApp:", e)
+        print("❌ ERROR TWILIO:", e)
 
 # =============================
 # LOOP PRINCIPAL 24/7
@@ -227,6 +228,7 @@ while True:
 if __name__ == "__main__":
     enviar_whatsapp("🧪 Prueba de WhatsApp: bot sísmico Yucatán funcionando")
     exit()
+
 
 
 

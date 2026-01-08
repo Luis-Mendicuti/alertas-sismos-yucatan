@@ -1,40 +1,22 @@
 import requests
 import time
-from datetime import datetime, timedelta
-from math import radians, sin, cos, sqrt, atan2
+import os
+from math import radians, cos, sin, asin, sqrt
 from twilio.rest import Client
 
-# =============================
-# CONFIGURACIÓN GENERAL
-# =============================
+# =========================
+# CONFIGURACIÓN
+# =========================
 
-# Intervalo de verificación (segundos)
-INTERVALO = 300  # 5 minutos
+USGS_URL = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson"
+INTERVALO = 300  # segundos (5 minutos)
+MAG_MINIMA = 2.5
 
-# Magnitud mínima
-MAG_MIN = 2.5
+# =========================
+# MUNICIPIOS DE YUCATÁN
+# =========================
 
-# Centro de Yucatán + radio
-LAT_YUC = 20.7099
-LON_YUC = -89.0943
-RADIO_KM = 350
-
-# =============================
-# TWILIO (WHATSAPP)
-# =============================
-ACCOUNT_SID = "ACfeb0374be1bd8921d13d111a7409ce84"
-AUTH_TOKEN = "df19909b4a1e98f1d481da108ff82fd7"
-FROM_WHATSAPP = "whatsapp:+14155238886"
-TO_WHATSAPP = "whatsapp:+5219999001029"
-
-client = Client(ACCOUNT_SID, AUTH_TOKEN)
-
-# =============================
-# MUNICIPIOS DE YUCATÁN (106)
-# Coordenadas aproximadas (centro municipal)
-# =============================
-
-municipios = {
+MUNICIPIOS_YUCATAN = {
     "Abalá": (20.6489, -89.7133),
     "Acanceh": (20.8136, -89.4525),
     "Akil": (20.2639, -89.3467),
@@ -141,28 +123,14 @@ municipios = {
     "Yaxkukul": (21.0833, -89.4167),
     "Yobaín": (21.1944, -89.0853)
 }
+# =========================
+# TWILIO (VARIABLES ENTORNO)
+# =========================
 
-# =============================
-# FUNCIONES
-# =============================
-
-def distancia_km(lat1, lon1, lat2, lon2):
-    R = 6371
-    dlat = radians(lat2 - lat1)
-    dlon = radians(lon2 - lon1)
-    a = sin(dlat/2)**2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon/2)**2
-    c = 2 * atan2(sqrt(a), sqrt(1-a))
-    return R * c
-
-def municipio_mas_cercano(lat, lon):
-    cercano = None
-    min_d = float("inf")
-    for m, (mlat, mlon) in municipios.items():
-        d = distancia_km(lat, lon, mlat, mlon)
-        if d < min_d:
-            min_d = d
-            cercano = m
-    return cercano, round(min_d, 2)
+client = Client(
+    os.getenv("TWILIO_ACCOUNT_SID"),
+    os.getenv("TWILIO_AUTH_TOKEN")
+)
 
 def enviar_whatsapp(mensaje):
     try:
@@ -171,64 +139,80 @@ def enviar_whatsapp(mensaje):
             to=os.getenv("TO_WHATSAPP"),
             body=mensaje
         )
-        print("Mensaje enviado, SID:", msg.sid)
+        print("Mensaje enviado:", msg.sid)
     except Exception as e:
-        print("❌ ERROR TWILIO:", e)
+        print("❌ Error enviando WhatsApp:", e)
 
-# =============================
-# LOOP PRINCIPAL 24/7
-# =============================
+# =========================
+# FUNCIONES AUXILIARES
+# =========================
 
-ultimo_evento = None
+def distancia_km(lat1, lon1, lat2, lon2):
+    lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+    a = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlon / 2) ** 2
+    c = 2 * asin(sqrt(a))
+    return 6371 * c
 
-while True:
+def municipio_mas_cercano(lat, lon):
+    cercano = None
+    menor_distancia = 999999
+    for municipio, (mlat, mlon) in MUNICIPIOS_YUCATAN.items():
+        d = distancia_km(lat, lon, mlat, mlon)
+        if d < menor_distancia:
+            menor_distancia = d
+            cercano = municipio
+    return cercano, round(menor_distancia, 2)
+
+# =========================
+# LOOP PRINCIPAL
+# =========================
+
+sismos_reportados = set()
+
+def verificar_sismos():
     try:
-        fin = datetime.utcnow()
-        inicio = fin - timedelta(minutes=10)
+        data = requests.get(USGS_URL, timeout=15).json()
+        for feature in data["features"]:
+            props = feature["properties"]
+            coords = feature["geometry"]["coordinates"]
 
-        url = "https://earthquake.usgs.gov/fdsnws/event/1/query"
-        params = {
-            "format": "geojson",
-            "starttime": inicio.isoformat(),
-            "endtime": fin.isoformat(),
-            "latitude": LAT_YUC,
-            "longitude": LON_YUC,
-            "maxradiuskm": RADIO_KM,
-            "minmagnitude": MAG_MIN
-        }
+            mag = props["mag"]
+            lugar = props["place"]
+            tiempo = props["time"]
+            lon, lat = coords[0], coords[1]
+            sismo_id = feature["id"]
 
-        data = requests.get(url, params=params).json()
-
-        for sismo in data["features"]:
-            sid = sismo["id"]
-            if sid == ultimo_evento:
+            if mag is None or mag < MAG_MINIMA:
                 continue
 
-            ultimo_evento = sid
-            lat, lon = sismo["geometry"]["coordinates"][1], sismo["geometry"]["coordinates"][0]
-            mag = sismo["properties"]["mag"]
-            hora = datetime.utcfromtimestamp(sismo["properties"]["time"] / 1000)
+            municipio, distancia = municipio_mas_cercano(lat, lon)
 
-            muni, dist = municipio_mas_cercano(lat, lon)
-
-            mensaje = (
-                "🚨 SISMO DETECTADO EN YUCATÁN\n"
-                f"Magnitud: {mag}\n"
-                f"Municipio cercano: {muni}\n"
-                f"Distancia: {dist} km\n"
-                f"Hora UTC: {hora}"
-            )
-
-            enviar_whatsapp(mensaje)
+            if municipio and distancia <= 150 and sismo_id not in sismos_reportados:
+                mensaje = (
+                    f"🚨 *SISMO DETECTADO*\n\n"
+                    f"📍 Municipio cercano: {municipio}\n"
+                    f"📏 Distancia: {distancia} km\n"
+                    f"🌎 Ubicación: {lugar}\n"
+                    f"📊 Magnitud: {mag}\n"
+                )
+                enviar_whatsapp(mensaje)
+                sismos_reportados.add(sismo_id)
 
     except Exception as e:
-        print("Error:", e)
+        print("Error al verificar sismos:", e)
 
-    time.sleep(INTERVALO)
+# =========================
+# EJECUCIÓN 24/7
+# =========================
+
 if __name__ == "__main__":
+    # 🔴 PRUEBA CONTROLADA (SOLO PARA TEST)
     enviar_whatsapp("🧪 Prueba de WhatsApp: bot sísmico Yucatán funcionando")
     exit()
 
-
-
-
+    # 🔁 MODO PRODUCCIÓN (24/7)
+    while True:
+        verificar_sismos()
+        time.sleep(INTERVALO)

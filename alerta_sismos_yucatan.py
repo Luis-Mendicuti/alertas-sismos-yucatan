@@ -224,5 +224,9 @@ while True:
         print("Error:", e)
 
     time.sleep(INTERVALO)
+if __name__ == "__main__":
+    enviar_whatsapp("🧪 Prueba de WhatsApp: bot sísmico Yucatán funcionando")
+    exit()
+
 
 

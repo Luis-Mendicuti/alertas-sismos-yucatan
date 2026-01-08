@@ -176,7 +176,7 @@ def enviar_whatsapp(mensaje):
 # =============================
 
 ultimo_evento = None
-
+enviar_whatsapp("🟢 Bot de alertas sísmicas de Yucatán ACTIVO en Railway (24/7)")
 
 while True:
     try:
@@ -222,3 +222,4 @@ while True:
         print("Error:", e)
 
     time.sleep(INTERVALO)
+

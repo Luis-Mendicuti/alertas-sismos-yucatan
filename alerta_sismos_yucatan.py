@@ -165,18 +165,20 @@ def municipio_mas_cercano(lat, lon):
     return cercano, round(min_d, 2)
 
 def enviar_whatsapp(mensaje):
-    client.messages.create(
-        body=mensaje,
-        from_=FROM_WHATSAPP,
-        to=TO_WHATSAPP
-    )
+    try:
+        client.messages.create(
+            from_=os.getenv("FROM_WHATSAPP"),
+            to=os.getenv("TO_WHATSAPP"),
+            body=mensaje
+        )
+    except Exception as e:
+        print("Error enviando WhatsApp:", e)
 
 # =============================
 # LOOP PRINCIPAL 24/7
 # =============================
 
 ultimo_evento = None
-enviar_whatsapp("🟢 Bot de alertas sísmicas de Yucatán ACTIVO en Railway (24/7)")
 
 while True:
     try:
@@ -222,4 +224,5 @@ while True:
         print("Error:", e)
 
     time.sleep(INTERVALO)
+
 

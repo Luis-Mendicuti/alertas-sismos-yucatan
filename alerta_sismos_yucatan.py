@@ -166,53 +166,92 @@ def municipio_mas_cercano(lat, lon):
     return cercano, round(menor_distancia, 2)
 
 # =========================
-# LOOP PRINCIPAL
+# UTILIDADES
 # =========================
 
-sismos_reportados = set()
+def distancia_km(lat1, lon1, lat2, lon2):
+    lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+    a = sin(dlat / 2)**2 + cos(lat1) * cos(lat2) * sin(dlon / 2)**2
+    c = 2 * asin(sqrt(a))
+    return 6371 * c
+
+def municipio_mas_cercano(lat, lon):
+    cercano = None
+    menor = 999999
+    for m, (mlat, mlon) in MUNICIPIOS_YUCATAN.items():
+        d = distancia_km(lat, lon, mlat, mlon)
+        if d < menor:
+            menor = d
+            cercano = m
+    return cercano, round(menor, 2)
+
+# =========================
+# CONTROL ANTI-SPAM
+# =========================
+
+def cargar_ultimo_sismo():
+    if os.path.exists(ARCHIVO_ULTIMO):
+        with open(ARCHIVO_ULTIMO, "r") as f:
+            return f.read().strip()
+    return None
+
+def guardar_ultimo_sismo(sismo_id):
+    with open(ARCHIVO_ULTIMO, "w") as f:
+        f.write(sismo_id)
+
+ultimo_sismo = cargar_ultimo_sismo()
+
+# =========================
+# VERIFICACIÓN DE SISMOS
+# =========================
 
 def verificar_sismos():
+    global ultimo_sismo
     try:
         data = requests.get(USGS_URL, timeout=15).json()
+
         for feature in data["features"]:
             props = feature["properties"]
             coords = feature["geometry"]["coordinates"]
 
             mag = props["mag"]
             lugar = props["place"]
-            tiempo = props["time"]
             lon, lat = coords[0], coords[1]
             sismo_id = feature["id"]
 
             if mag is None or mag < MAG_MINIMA:
                 continue
 
+            if sismo_id == ultimo_sismo:
+                continue
+
             municipio, distancia = municipio_mas_cercano(lat, lon)
 
-            if municipio and distancia <= 150 and sismo_id not in sismos_reportados:
+            if municipio and distancia <= 150:
                 mensaje = (
-                    f"🚨 *SISMO DETECTADO*\n\n"
+                    "🚨 *SISMO DETECTADO*\n\n"
                     f"📍 Municipio cercano: {municipio}\n"
                     f"📏 Distancia: {distancia} km\n"
-                    f"🌎 Ubicación: {lugar}\n"
-                    f"📊 Magnitud: {mag}\n"
+                    f"🌍 Ubicación: {lugar}\n"
+                    f"📊 Magnitud: {mag}"
                 )
+
                 enviar_whatsapp(mensaje)
-                sismos_reportados.add(sismo_id)
+                guardar_ultimo_sismo(sismo_id)
+                ultimo_sismo = sismo_id
 
     except Exception as e:
-        print("Error al verificar sismos:", e)
+        print("⚠️ Error verificando sismos:", e)
 
 # =========================
-# EJECUCIÓN 24/7
+# 🔁 MODO PRODUCCIÓN 24/7
 # =========================
 
-if __name__ == "__main__":
-    # 🔴 PRUEBA CONTROLADA (SOLO PARA TEST)
-    enviar_whatsapp("🧪 Prueba de WhatsApp: bot sísmico Yucatán funcionando")
-    exit()
+print("🟢 Bot de alertas sísmicas Yucatán activo")
 
-    # 🔁 MODO PRODUCCIÓN (24/7)
-    while True:
-        verificar_sismos()
-        time.sleep(INTERVALO)
+while True:
+    verificar_sismos()
+    time.sleep(INTERVALO)
+

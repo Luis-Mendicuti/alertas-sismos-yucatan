@@ -11,6 +11,7 @@ from twilio.rest import Client
 USGS_URL = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson"
 INTERVALO = 300  # segundos (5 minutos)
 MAG_MINIMA = 2.5
+ARCHIVO_ULTIMO = "ultimo_sismo.txt"
 
 # =========================
 # MUNICIPIOS DE YUCATÁN
@@ -254,4 +255,5 @@ print("🟢 Bot de alertas sísmicas Yucatán activo")
 while True:
     verificar_sismos()
     time.sleep(INTERVALO)
+
 

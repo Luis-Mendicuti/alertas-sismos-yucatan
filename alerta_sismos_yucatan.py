@@ -3,6 +3,8 @@ import time
 import os
 from math import radians, cos, sin, asin, sqrt
 from twilio.rest import Client
+from datetime import datetime
+import pytz
 
 # =========================
 # CONFIGURACIÓN
@@ -132,6 +134,15 @@ client = Client(
     os.getenv("TWILIO_ACCOUNT_SID"),
     os.getenv("TWILIO_AUTH_TOKEN")
 )
+#.....DEFINIR LA HORA EXACTA DE QUE TEMBLO-----#
+def formatear_hora_local(timestamp_ms):
+    utc = pytz.utc
+    zona_yucatan = pytz.timezone("America/Merida")
+
+    fecha_utc = datetime.fromtimestamp(timestamp_ms / 1000, tz=utc)
+    fecha_local = fecha_utc.astimezone(zona_yucatan)
+
+    return fecha_local.strftime("%d/%m/%Y %H:%M:%S")
 
 def enviar_whatsapp(mensaje):
     try:
@@ -229,6 +240,7 @@ def verificar_sismos():
                 continue
 
             municipio, distancia = municipio_mas_cercano(lat, lon)
+            hora_local = formatear_hora_local(props["time"])
 
             if municipio and distancia <= 150:
                 mensaje = (
@@ -236,8 +248,9 @@ def verificar_sismos():
                     f"📍 Municipio cercano: {municipio}\n"
                     f"📏 Distancia: {distancia} km\n"
                     f"🌍 Ubicación: {lugar}\n"
-                    f"📊 Magnitud: {mag}"
-                )
+                    f"📊 Magnitud: {mag}\n"
+                    f"🕒 Hora local: {hora_local}"
+             )
 
                 enviar_whatsapp(mensaje)
                 guardar_ultimo_sismo(sismo_id)
@@ -255,5 +268,6 @@ print("🟢 Bot de alertas sísmicas Yucatán activo")
 while True:
     verificar_sismos()
     time.sleep(INTERVALO)
+
 
 

@@ -16,6 +16,20 @@ MAG_MINIMA = 2.5
 ARCHIVO_ULTIMO = "ultimo_sismo.txt"
 
 # =========================
+# ESTADOS DE MÉXICO
+# =========================
+
+ESTADOS_MEXICO = [
+    "Aguascalientes", "Baja California", "Baja California Sur", "Campeche",
+    "Chiapas", "Chihuahua", "Ciudad de Mexico", "Coahuila", "Colima",
+    "Durango", "Estado de Mexico", "Guanajuato", "Guerrero", "Hidalgo",
+    "Jalisco", "Michoacan", "Morelos", "Nayarit", "Nuevo Leon", "Oaxaca",
+    "Puebla", "Queretaro", "Quintana Roo", "San Luis Potosi", "Sinaloa",
+    "Sonora", "Tabasco", "Tamaulipas", "Tlaxcala", "Veracruz",
+    "Yucatan", "Zacatecas"
+]
+
+# =========================
 # MUNICIPIOS DE YUCATÁN
 # =========================
 
@@ -137,12 +151,9 @@ client = Client(
 #.....DEFINIR LA HORA EXACTA DE QUE TEMBLO-----#
 def formatear_hora_local(timestamp_ms):
     utc = pytz.utc
-    zona_yucatan = pytz.timezone("America/Merida")
-
+    zona = pytz.timezone("America/Merida")
     fecha_utc = datetime.fromtimestamp(timestamp_ms / 1000, tz=utc)
-    fecha_local = fecha_utc.astimezone(zona_yucatan)
-
-    return fecha_local.strftime("%d/%m/%Y %H:%M:%S")
+    return fecha_utc.astimezone(zona).strftime("%d/%m/%Y %H:%M:%S")
 
 def enviar_whatsapp(mensaje):
     try:
@@ -200,6 +211,19 @@ def municipio_mas_cercano(lat, lon):
     return cercano, round(menor, 2)
 
 # =========================
+# DETECTAR ESTADO DE MÉXICO
+# =========================
+
+def obtener_estado_mexico(lugar):
+    if not lugar:
+        return None
+    lugar = lugar.lower()
+    for estado in ESTADOS_MEXICO:
+        if estado.lower() in lugar:
+            return estado
+    return None
+
+# =========================
 # CONTROL ANTI-SPAM
 # =========================
 
@@ -221,6 +245,7 @@ ultimo_sismo = cargar_ultimo_sismo()
 
 def verificar_sismos():
     global ultimo_sismo
+
     try:
         data = requests.get(USGS_URL, timeout=15).json()
 
@@ -239,35 +264,48 @@ def verificar_sismos():
             if sismo_id == ultimo_sismo:
                 continue
 
-            municipio, distancia = municipio_mas_cercano(lat, lon)
             hora_local = formatear_hora_local(props["time"])
+            estado = obtener_estado_mexico(lugar)
 
+            # 🔹 YUCATÁN (municipios)
+            municipio, distancia = municipio_mas_cercano(lat, lon)
             if municipio and distancia <= 150:
                 mensaje = (
-                    "🚨 *SISMO DETECTADO*\n\n"
+                    "🚨 *SISMO DETECTADO EN YUCATÁN*\n\n"
                     f"📍 Municipio cercano: {municipio}\n"
                     f"📏 Distancia: {distancia} km\n"
                     f"🌍 Ubicación: {lugar}\n"
                     f"📊 Magnitud: {mag}\n"
                     f"🕒 Hora local: {hora_local}"
-             )
-
+                )
                 enviar_whatsapp(mensaje)
                 guardar_ultimo_sismo(sismo_id)
                 ultimo_sismo = sismo_id
+                return
+
+            # 🔹 MÉXICO (estados)
+            if estado:
+                mensaje = (
+                    "🚨 *SISMO DETECTADO EN MÉXICO*\n\n"
+                    f"📍 Estado: {estado}\n"
+                    f"🌍 Ubicación: {lugar}\n"
+                    f"📊 Magnitud: {mag}\n"
+                    f"🕒 Hora local: {hora_local}"
+                )
+                enviar_whatsapp(mensaje)
+                guardar_ultimo_sismo(sismo_id)
+                ultimo_sismo = sismo_id
+                return
 
     except Exception as e:
         print("⚠️ Error verificando sismos:", e)
 
 # =========================
-# 🔁 MODO PRODUCCIÓN 24/7
+# EJECUCIÓN 24/7
 # =========================
 
-print("🟢 Bot de alertas sísmicas Yucatán activo")
+print("🟢 Bot sísmico México + Yucatán activo")
 
 while True:
     verificar_sismos()
     time.sleep(INTERVALO)
-
-
-

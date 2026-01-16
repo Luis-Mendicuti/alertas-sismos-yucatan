@@ -12,7 +12,7 @@ import pytz
 
 USGS_URL = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson"
 INTERVALO = 300  # segundos (5 minutos)
-MAG_MINIMA = 2.5
+MAG_MINIMA = 1.0
 ARCHIVO_ULTIMO = "ultimo_sismo.txt"
 
 # =========================
@@ -309,3 +309,4 @@ print("🟢 Bot sísmico México + Yucatán activo")
 while True:
     verificar_sismos()
     time.sleep(INTERVALO)
+

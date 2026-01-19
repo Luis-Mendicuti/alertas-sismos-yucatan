@@ -12,7 +12,7 @@ import pytz
 
 USGS_URL = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson"
 INTERVALO = 300  # segundos (5 minutos)
-MAG_MINIMA = 1.0
+MAG_MINIMA = 2.5
 ARCHIVO_ULTIMO = "ultimo_sismo.txt"
 
 # =========================
@@ -300,45 +300,16 @@ def verificar_sismos():
     except Exception as e:
         print("⚠️ Error verificando sismos:", e)
 
-# =========================
-# SIMULACIÓN DE SISMO
-# =========================
-
-def simular_sismo():
-    print("🧪 Simulando sismo...")
-
-    lat = 16.85
-    lon = -99.90
-    mag = 4.8
-    lugar = "Simulación frente a Guerrero"
-    sismo_id = "SIMULACION_001"
-    hora_local = formatear_hora_local(int(time.time() * 1000))
-
-    municipio, distancia = municipio_mas_cercano(lat, lon)
-
-    if municipio:
-        mensaje = (
-            "🧪 *SIMULACIÓN DE SISMO*\n\n"
-            f"📍 Municipio cercano: {municipio}\n"
-            f"📏 Distancia: {distancia} km\n"
-            f"🌍 Ubicación: {lugar}\n"
-            f"📊 Magnitud: {mag}\n"
-            f"🕒 Hora local: {hora_local}\n\n"
-            "✅ Esto es una prueba del bot"
-        )
-
-        enviar_whatsapp(mensaje)
-    else:
-        print("❌ La simulación no cumplió criterios")
-
 
 # =========================
 # EJECUCIÓN 24/7
 # =========================
 
-print("🟢 Bot sísmico México + Yucatán activo")
-simular_sismo()
-print("🛑 Prueba finalizada")
+print("🟢 Alerta de sísmico en México ó Yucatán, para alertar a Protección Civil Kanasín")
+while True:
+    verificar_sismos()
+    time.sleep(INTERVALO)
+
 
 
 

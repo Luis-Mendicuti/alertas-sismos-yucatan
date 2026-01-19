@@ -316,7 +316,7 @@ def simular_sismo():
 
     municipio, distancia = municipio_mas_cercano(lat, lon)
 
-    if municipio and distancia <= 150:
+    if municipio:
         mensaje = (
             "🧪 *SIMULACIÓN DE SISMO*\n\n"
             f"📍 Municipio cercano: {municipio}\n"
@@ -339,5 +339,6 @@ def simular_sismo():
 print("🟢 Bot sísmico México + Yucatán activo")
 simular_sismo()
 print("🛑 Prueba finalizada")
+
 
 

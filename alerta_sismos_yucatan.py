@@ -301,12 +301,43 @@ def verificar_sismos():
         print("⚠️ Error verificando sismos:", e)
 
 # =========================
+# SIMULACIÓN DE SISMO
+# =========================
+
+def simular_sismo():
+    print("🧪 Simulando sismo...")
+
+    lat = 16.85
+    lon = -99.90
+    mag = 4.8
+    lugar = "Simulación frente a Guerrero"
+    sismo_id = "SIMULACION_001"
+    hora_local = formatear_hora_local(int(time.time() * 1000))
+
+    municipio, distancia = municipio_mas_cercano(lat, lon)
+
+    if municipio and distancia <= 150:
+        mensaje = (
+            "🧪 *SIMULACIÓN DE SISMO*\n\n"
+            f"📍 Municipio cercano: {municipio}\n"
+            f"📏 Distancia: {distancia} km\n"
+            f"🌍 Ubicación: {lugar}\n"
+            f"📊 Magnitud: {mag}\n"
+            f"🕒 Hora local: {hora_local}\n\n"
+            "✅ Esto es una prueba del bot"
+        )
+
+        enviar_whatsapp(mensaje)
+    else:
+        print("❌ La simulación no cumplió criterios")
+
+
+# =========================
 # EJECUCIÓN 24/7
 # =========================
 
 print("🟢 Bot sísmico México + Yucatán activo")
+simular_sismo()
+print("🛑 Prueba finalizada")
 
-while True:
-    verificar_sismos()
-    time.sleep(INTERVALO)
 

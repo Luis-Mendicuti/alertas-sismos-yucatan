@@ -5,28 +5,33 @@ from math import radians, cos, sin, asin, sqrt
 from twilio.rest import Client
 from datetime import datetime
 import pytz
+from bs4 import BeautifulSoup
 
 # =========================
 # CONFIGURACIÓN
 # =========================
 
+INTERVALO = 300
+MAG_MIN_USGS = 2.5
+MAG_MIN_SSN = 1.5
+
 USGS_URL = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson"
-INTERVALO = 300  # segundos (5 minutos)
-MAG_MINIMA = 2.5
-ARCHIVO_ULTIMO = "ultimo_sismo.txt"
+SSN_URL = "https://www.ssn.unam.mx/sismicidad/ultimos/"
+
+ARCHIVO_USGS = "ultimo_usgs.txt"
+ARCHIVO_SSN = "ultimo_ssn.txt"
 
 # =========================
 # ESTADOS DE MÉXICO
 # =========================
 
 ESTADOS_MEXICO = [
-    "Aguascalientes", "Baja California", "Baja California Sur", "Campeche",
-    "Chiapas", "Chihuahua", "Ciudad de Mexico", "Coahuila", "Colima",
-    "Durango", "Estado de Mexico", "Guanajuato", "Guerrero", "Hidalgo",
-    "Jalisco", "Michoacan", "Morelos", "Nayarit", "Nuevo Leon", "Oaxaca",
-    "Puebla", "Queretaro", "Quintana Roo", "San Luis Potosi", "Sinaloa",
-    "Sonora", "Tabasco", "Tamaulipas", "Tlaxcala", "Veracruz",
-    "Yucatan", "Zacatecas"
+    "aguascalientes","baja california","baja california sur","campeche",
+    "chiapas","chihuahua","ciudad de mexico","coahuila","colima","durango",
+    "estado de mexico","guanajuato","guerrero","hidalgo","jalisco","michoacan",
+    "morelos","nayarit","nuevo leon","oaxaca","puebla","queretaro",
+    "quintana roo","san luis potosi","sinaloa","sonora","tabasco",
+    "tamaulipas","tlaxcala","veracruz","yucatan","zacatecas"
 ]
 
 # =========================
@@ -141,173 +146,154 @@ MUNICIPIOS_YUCATAN = {
     "Yobaín": (21.1944, -89.0853)
 }
 # =========================
-# TWILIO (VARIABLES ENTORNO)
+# TWILIO
 # =========================
 
 client = Client(
     os.getenv("TWILIO_ACCOUNT_SID"),
     os.getenv("TWILIO_AUTH_TOKEN")
 )
-#.....DEFINIR LA HORA EXACTA DE QUE TEMBLO-----#
-def formatear_hora_local(timestamp_ms):
-    utc = pytz.utc
-    zona = pytz.timezone("America/Merida")
-    fecha_utc = datetime.fromtimestamp(timestamp_ms / 1000, tz=utc)
-    return fecha_utc.astimezone(zona).strftime("%d/%m/%Y %H:%M:%S")
 
-def enviar_whatsapp(mensaje):
-    try:
-        msg = client.messages.create(
-            from_=os.getenv("FROM_WHATSAPP"),
-            to=os.getenv("TO_WHATSAPP"),
-            body=mensaje
-        )
-        print("Mensaje enviado:", msg.sid)
-    except Exception as e:
-        print("❌ Error enviando WhatsApp:", e)
-
-# =========================
-# FUNCIONES AUXILIARES
-# =========================
-
-def distancia_km(lat1, lon1, lat2, lon2):
-    lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
-    dlon = lon2 - lon1
-    dlat = lat2 - lat1
-    a = sin(dlat / 2) ** 2 + cos(lat1) * cos(lat2) * sin(dlon / 2) ** 2
-    c = 2 * asin(sqrt(a))
-    return 6371 * c
-
-def municipio_mas_cercano(lat, lon):
-    cercano = None
-    menor_distancia = 999999
-    for municipio, (mlat, mlon) in MUNICIPIOS_YUCATAN.items():
-        d = distancia_km(lat, lon, mlat, mlon)
-        if d < menor_distancia:
-            menor_distancia = d
-            cercano = municipio
-    return cercano, round(menor_distancia, 2)
+FROM_WA = os.getenv("FROM_WHATSAPP")
+TO_WA = os.getenv("TO_WHATSAPP")
 
 # =========================
 # UTILIDADES
 # =========================
 
+def hora_local(timestamp_ms):
+    zona = pytz.timezone("America/Merida")
+    return datetime.fromtimestamp(timestamp_ms / 1000, tz=pytz.utc)\
+        .astimezone(zona).strftime("%d/%m/%Y %H:%M:%S")
+
+def enviar_whatsapp(mensaje):
+    msg = client.messages.create(
+        from_=FROM_WA,
+        to=TO_WA,
+        body=mensaje
+    )
+    print("📲 Mensaje enviado:", msg.sid)
+
+def cargar_ultimo(path):
+    if os.path.exists(path):
+        return open(path).read().strip()
+    return None
+
+def guardar_ultimo(path, valor):
+    with open(path, "w") as f:
+        f.write(valor)
+
 def distancia_km(lat1, lon1, lat2, lon2):
     lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
-    dlon = lon2 - lon1
-    dlat = lat2 - lat1
-    a = sin(dlat / 2)**2 + cos(lat1) * cos(lat2) * sin(dlon / 2)**2
-    c = 2 * asin(sqrt(a))
-    return 6371 * c
+    a = sin((lat2-lat1)/2)**2 + cos(lat1)*cos(lat2)*sin((lon2-lon1)/2)**2
+    return 6371 * (2 * asin(sqrt(a)))
 
-def municipio_mas_cercano(lat, lon):
-    cercano = None
-    menor = 999999
+def municipio_cercano(lat, lon):
+    cercano, menor = None, 999999
     for m, (mlat, mlon) in MUNICIPIOS_YUCATAN.items():
         d = distancia_km(lat, lon, mlat, mlon)
         if d < menor:
-            menor = d
-            cercano = m
+            cercano, menor = m, d
     return cercano, round(menor, 2)
 
-# =========================
-# DETECTAR ESTADO DE MÉXICO
-# =========================
-
-def obtener_estado_mexico(lugar):
+def detectar_estado(lugar):
     if not lugar:
         return None
-    lugar = lugar.lower()
-    for estado in ESTADOS_MEXICO:
-        if estado.lower() in lugar:
-            return estado
+    l = lugar.lower()
+    for e in ESTADOS_MEXICO:
+        if e in l:
+            return e.title()
     return None
 
 # =========================
-# CONTROL ANTI-SPAM
+# USGS
 # =========================
 
-def cargar_ultimo_sismo():
-    if os.path.exists(ARCHIVO_ULTIMO):
-        with open(ARCHIVO_ULTIMO, "r") as f:
-            return f.read().strip()
-    return None
+def verificar_usgs():
+    ultimo = cargar_ultimo(ARCHIVO_USGS)
+    data = requests.get(USGS_URL, timeout=15).json()
 
-def guardar_ultimo_sismo(sismo_id):
-    with open(ARCHIVO_ULTIMO, "w") as f:
-        f.write(sismo_id)
+    for f in data["features"]:
+        p = f["properties"]
+        lon, lat = f["geometry"]["coordinates"][:2]
 
-ultimo_sismo = cargar_ultimo_sismo()
+        if not p["mag"] or p["mag"] < MAG_MIN_USGS:
+            continue
 
-# =========================
-# VERIFICACIÓN DE SISMOS
-# =========================
+        if f["id"] == ultimo:
+            continue
 
-def verificar_sismos():
-    global ultimo_sismo
+        municipio, dist = municipio_cercano(lat, lon)
+        estado = detectar_estado(p["place"])
 
-    try:
-        data = requests.get(USGS_URL, timeout=15).json()
+        mensaje = None
 
-        for feature in data["features"]:
-            props = feature["properties"]
-            coords = feature["geometry"]["coordinates"]
+        if municipio and dist <= 150:
+            mensaje = (
+                "🚨 *SISMO EN YUCATÁN (USGS)*\n\n"
+                f"📍 Municipio: {municipio}\n"
+                f"📏 Distancia: {dist} km\n"
+                f"📊 Magnitud: {p['mag']}\n"
+                f"🕒 Hora: {hora_local(p['time'])}"
+            )
+        elif estado:
+            mensaje = (
+                "🚨 *SISMO EN MÉXICO (USGS)*\n\n"
+                f"📍 Estado: {estado}\n"
+                f"📊 Magnitud: {p['mag']}\n"
+                f"🕒 Hora: {hora_local(p['time'])}"
+            )
 
-            mag = props["mag"]
-            lugar = props["place"]
-            lon, lat = coords[0], coords[1]
-            sismo_id = feature["id"]
-
-            if mag is None or mag < MAG_MINIMA:
-                continue
-
-            if sismo_id == ultimo_sismo:
-                continue
-
-            hora_local = formatear_hora_local(props["time"])
-            estado = obtener_estado_mexico(lugar)
-
-            # 🔹 YUCATÁN (municipios)
-            municipio, distancia = municipio_mas_cercano(lat, lon)
-            if municipio and distancia <= 150:
-                mensaje = (
-                    "🚨 *SISMO DETECTADO EN YUCATÁN*\n\n"
-                    f"📍 Municipio cercano: {municipio}\n"
-                    f"📏 Distancia: {distancia} km\n"
-                    f"🌍 Ubicación: {lugar}\n"
-                    f"📊 Magnitud: {mag}\n"
-                    f"🕒 Hora local: {hora_local}"
-                )
-                enviar_whatsapp(mensaje)
-                guardar_ultimo_sismo(sismo_id)
-                ultimo_sismo = sismo_id
-                return
-
-            # 🔹 MÉXICO (estados)
-            if estado:
-                mensaje = (
-                    "🚨 *SISMO DETECTADO EN MÉXICO*\n\n"
-                    f"📍 Estado: {estado}\n"
-                    f"🌍 Ubicación: {lugar}\n"
-                    f"📊 Magnitud: {mag}\n"
-                    f"🕒 Hora local: {hora_local}"
-                )
-                enviar_whatsapp(mensaje)
-                guardar_ultimo_sismo(sismo_id)
-                ultimo_sismo = sismo_id
-                return
-
-    except Exception as e:
-        print("⚠️ Error verificando sismos:", e)
-
+        if mensaje:
+            enviar_whatsapp(mensaje)
+            guardar_ultimo(ARCHIVO_USGS, f["id"])
+            break
 
 # =========================
-# EJECUCIÓN 24/7
+# SSN
 # =========================
 
-print("🟢 Alerta de sísmico en México ó Yucatán, para alertar a Protección Civil Kanasín")
+def verificar_ssn():
+    ultimo = cargar_ultimo(ARCHIVO_SSN)
+    html = requests.get(SSN_URL, timeout=15).text
+    soup = BeautifulSoup(html, "html.parser")
+
+    fila = soup.find("table").find_all("tr")[1]
+    cols = fila.find_all("td")
+
+    fecha = cols[0].text.strip()
+    hora = cols[1].text.strip()
+    mag = float(cols[4].text.strip())
+    lugar = cols[7].text.strip()
+
+    sismo_id = fecha + hora + lugar
+
+    if mag < MAG_MIN_SSN or sismo_id == ultimo:
+        return
+
+    mensaje = (
+        "🇲🇽 *SISMO DETECTADO (SSN)*\n\n"
+        f"📍 Lugar: {lugar}\n"
+        f"📊 Magnitud: {mag}\n"
+        f"🕒 Fecha y hora: {fecha} {hora}"
+    )
+
+    enviar_whatsapp(mensaje)
+    guardar_ultimo(ARCHIVO_SSN, sismo_id)
+
+# =========================
+# EJECUCIÓN
+# =========================
+
+print("🟢 Bot sísmico México + Yucatán activo")
+
 while True:
-    verificar_sismos()
+    try:
+        verificar_usgs()
+        verificar_ssn()
+    except Exception as e:
+        print("⚠️ Error:", e)
+
     time.sleep(INTERVALO)
 
 

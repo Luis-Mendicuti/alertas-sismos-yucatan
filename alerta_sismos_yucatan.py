@@ -12,8 +12,9 @@ from bs4 import BeautifulSoup
 # =========================
 
 INTERVALO = 300
-MAG_MIN_USGS = 2.5
-MAG_MIN_SSN = 1.5
+INTERVALO_USGS = 300
+INTERVALO_SSN = 3600
+MAG_MINIMA = 2.5
 
 USGS_URL = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson"
 SSN_URL = "https://www.ssn.unam.mx/sismicidad/ultimos/"
@@ -316,3 +317,4 @@ while True:
         ultimo_ssn = time.time()
 
     time.sleep(INTERVALO_USGS)
+

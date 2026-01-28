@@ -147,7 +147,6 @@ MUNICIPIOS_YUCATAN = {
     "Yaxkukul": (21.0833, -89.4167),
     "Yobaín": (21.1944, -89.0853)
 }
-from municipios_yucatan import MUNICIPIOS_YUCATAN  # recomendable separarlo
 # =========================
 # UTILIDADES
 # =========================
@@ -293,5 +292,6 @@ while True:
     verificar_usgs()
     verificar_ssn()
     time.sleep(INTERVALO)
+
 
 

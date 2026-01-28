@@ -2,25 +2,26 @@ import requests
 import time
 import os
 from math import radians, cos, sin, asin, sqrt
-from twilio.rest import Client
 from datetime import datetime
 import pytz
 from bs4 import BeautifulSoup
 
 # =========================
-# CONFIGURACIÓN
+# CONFIGURACIÓN GENERAL
 # =========================
 
-INTERVALO = 300
-INTERVALO_USGS = 300
-INTERVALO_SSN = 3600
+INTERVALO = 300  # 5 minutos
 MAG_MINIMA = 2.5
+RADIO_YUCATAN_KM = 150
 
 USGS_URL = "https://earthquake.usgs.gov/earthquakes/feed/v1.0/summary/all_hour.geojson"
 SSN_URL = "https://www.ssn.unam.mx/sismicidad/ultimos/"
 
 ARCHIVO_USGS = "ultimo_usgs.txt"
 ARCHIVO_SSN = "ultimo_ssn.txt"
+
+TELEGRAM_TOKEN = os.getenv("TELEGRAM_TOKEN")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 
 # =========================
 # ESTADOS DE MÉXICO
@@ -146,135 +147,119 @@ MUNICIPIOS_YUCATAN = {
     "Yaxkukul": (21.0833, -89.4167),
     "Yobaín": (21.1944, -89.0853)
 }
-# =========================
-# TWILIO
-# =========================
-
-client = Client(
-    os.getenv("TWILIO_ACCOUNT_SID"),
-    os.getenv("TWILIO_AUTH_TOKEN")
-)
-
-def enviar_whatsapp(mensaje):
-    try:
-        client.messages.create(
-            from_=os.getenv("FROM_WHATSAPP"),
-            to=os.getenv("TO_WHATSAPP"),
-            body=mensaje
-        )
-        print("📩 WhatsApp enviado")
-    except Exception as e:
-        print("❌ Error Twilio:", e)
-
+from municipios_yucatan import MUNICIPIOS_YUCATAN  # recomendable separarlo
 # =========================
 # UTILIDADES
 # =========================
 
-def cargar_ultimo(path):
+def enviar_telegram(mensaje):
+    url = f"https://api.telegram.org/bot{8349059546:AAGvF0oBTuath6yuWvWbvt1C2ejcG929egQ}/sendMessage"
+    payload = {
+        "chat_id": 6185819291,
+        "text": mensaje,
+        "parse_mode": "Markdown"
+    }
+    requests.post(url, json=payload, timeout=10)
+
+def guardar(path, valor):
+    with open(path, "w") as f:
+        f.write(valor)
+
+def cargar(path):
     if os.path.exists(path):
         return open(path).read().strip()
     return None
 
-def guardar_ultimo(path, valor):
-    with open(path, "w") as f:
-        f.write(valor)
-
-def formatear_hora(timestamp_ms):
-    zona = pytz.timezone("America/Merida")
-    fecha = datetime.fromtimestamp(timestamp_ms / 1000, tz=pytz.utc)
-    return fecha.astimezone(zona).strftime("%d/%m/%Y %H:%M:%S")
-
 def distancia_km(lat1, lon1, lat2, lon2):
-    lon1, lat1, lon2, lat2 = map(radians, [lon1, lat1, lon2, lat2])
+    lon1, lat1, lon2, lat2 = map(radians,[lon1,lat1,lon2,lat2])
     dlon = lon2 - lon1
     dlat = lat2 - lat1
     a = sin(dlat/2)**2 + cos(lat1)*cos(lat2)*sin(dlon/2)**2
-    return 6371 * 2 * asin(sqrt(a))
+    return 6371 * (2 * asin(sqrt(a)))
 
 def municipio_mas_cercano(lat, lon):
-    cercano, menor = None, 999999
-    for m, (mlat, mlon) in MUNICIPIOS_YUCATAN.items():
-        d = distancia_km(lat, lon, mlat, mlon)
+    menor = 999999
+    cercano = None
+    for m,(mlat,mlon) in MUNICIPIOS_YUCATAN.items():
+        d = distancia_km(lat,lon,mlat,mlon)
         if d < menor:
-            menor, cercano = d, m
-    return cercano, round(menor, 2)
+            menor = d
+            cercano = m
+    return cercano, round(menor,2)
 
-def obtener_estado(lugar):
+def hora_local(timestamp_ms):
+    utc = pytz.utc
+    zona = pytz.timezone("America/Merida")
+    return datetime.fromtimestamp(timestamp_ms/1000, tz=utc)\
+        .astimezone(zona).strftime("%d/%m/%Y %H:%M:%S")
+
+def detectar_estado(lugar):
     if not lugar:
         return None
     lugar = lugar.lower()
-    for estado in ESTADOS_MEXICO:
-        if estado.lower() in lugar:
-            return estado
+    for e in ESTADOS_MEXICO:
+        if e.lower() in lugar:
+            return e
     return None
 
-def nivel_alerta(mag):
-    if mag >= 6.0:
-        return "🔴 EMERGENCIA"
-    elif mag >= 5.0:
-        return "🟠 ALERTA"
-    elif mag >= 3.5:
-        return "🟡 PREVENTIVO"
-    return "🟢 INFORMATIVO"
-
 # =========================
-# USGS (PRINCIPAL)
+# USGS
 # =========================
 
 def verificar_usgs():
-    ultimo = cargar_ultimo(ARCHIVO_USGS)
+    ultimo = cargar(ARCHIVO_USGS)
+    data = requests.get(USGS_URL, timeout=15).json()
 
-    try:
-        data = requests.get(USGS_URL, timeout=15).json()
+    for f in data["features"]:
+        p = f["properties"]
+        g = f["geometry"]["coordinates"]
 
-        for f in data["features"]:
-            p = f["properties"]
-            g = f["geometry"]
-            mag = p["mag"]
+        if p["mag"] is None or p["mag"] < MAG_MINIMA:
+            continue
 
-            if mag is None or mag < MAG_MINIMA:
-                continue
+        sismo_id = f["id"]
+        if sismo_id == ultimo:
+            return
 
-            sismo_id = f["id"]
-            if sismo_id == ultimo:
-                continue
+        lon, lat = g[0], g[1]
+        lugar = p["place"]
+        hora = hora_local(p["time"])
 
-            lon, lat = g["coordinates"][0], g["coordinates"][1]
-            estado = obtener_estado(p["place"])
-            municipio, dist = municipio_mas_cercano(lat, lon)
+        municipio, dist = municipio_mas_cercano(lat, lon)
+        estado = detectar_estado(lugar)
 
-            mensaje = (
-                "🚨 ALERTA SÍSMICA – PROTECCIÓN CIVIL\n\n"
-                f"📍 Estado: {estado or 'No identificado'}\n"
-                f"🏘 Municipio cercano: {municipio or 'N/A'}\n"
-                f"📏 Distancia: {dist if municipio else 'N/A'} km\n"
-                f"📊 Magnitud: {mag}\n"
-                f"⚠️ Nivel: {nivel_alerta(mag)}\n"
-                f"🕒 Hora: {formatear_hora(p['time'])}\n"
-                f"📡 Fuente: USGS"
+        if municipio and dist <= RADIO_YUCATAN_KM:
+            enviar_telegram(
+                f"🚨 *SISMO EN YUCATÁN*\n\n"
+                f"📍 Municipio cercano: {municipio}\n"
+                f"📏 Distancia: {dist} km\n"
+                f"📊 Magnitud: {p['mag']}\n"
+                f"🕒 Hora: {hora}"
             )
 
-            enviar_whatsapp(mensaje)
-            guardar_ultimo(ARCHIVO_USGS, sismo_id)
-            break
+        elif estado:
+            enviar_telegram(
+                f"🚨 *SISMO EN MÉXICO*\n\n"
+                f"📍 Estado: {estado}\n"
+                f"🌍 {lugar}\n"
+                f"📊 Magnitud: {p['mag']}\n"
+                f"🕒 Hora: {hora}"
+            )
 
-    except Exception as e:
-        print("⚠️ USGS error:", e)
+        guardar(ARCHIVO_USGS, sismo_id)
+        return
 
 # =========================
-# SSN (SECUNDARIA)
+# SSN (SECUNDARIO)
 # =========================
 
 def verificar_ssn():
-    ultimo = cargar_ultimo(ARCHIVO_SSN)
-    headers = {"User-Agent": "Mozilla/5.0"}
-
     try:
-        r = requests.get(SSN_URL, headers=headers, timeout=15)
-        soup = BeautifulSoup(r.text, "html.parser")
+        ultimo = cargar(ARCHIVO_SSN)
+        html = requests.get(SSN_URL, timeout=15).text
+        soup = BeautifulSoup(html, "html.parser")
 
-        tabla = soup.find("table")
-        fila = tabla.find_all("tr")[1]
+        fila = soup.find("table").find_all("tr")[1]
         cols = fila.find_all("td")
 
         fecha = cols[0].text.strip()
@@ -286,35 +271,27 @@ def verificar_ssn():
         if mag < MAG_MINIMA or sismo_id == ultimo:
             return
 
-        mensaje = (
-            "🇲🇽 ALERTA SÍSMICA – SSN\n\n"
-            f"📍 Lugar: {lugar}\n"
+        enviar_telegram(
+            f"🇲🇽 *SISMO REPORTADO POR SSN*\n\n"
+            f"📍 {lugar}\n"
             f"📊 Magnitud: {mag}\n"
-            f"⚠️ Nivel: {nivel_alerta(mag)}\n"
-            f"🕒 Fecha y hora: {fecha} {hora}\n"
-            f"📡 Fuente: SSN"
+            f"🕒 {fecha} {hora}"
         )
 
-        enviar_whatsapp(mensaje)
-        guardar_ultimo(ARCHIVO_SSN, sismo_id)
+        guardar(ARCHIVO_SSN, sismo_id)
 
-    except Exception as e:
-        print("⚠️ SSN no disponible, se omite")
+    except Exception:
+        pass  # NO rompe el bot
 
 # =========================
 # LOOP PRINCIPAL
 # =========================
 
-print("🟢 Bot sísmico México + Yucatán (PC) activo")
-
-ultimo_ssn = 0
+print("🟢 Bot sísmico activo – México y Yucatán")
 
 while True:
     verificar_usgs()
+    verificar_ssn()
+    time.sleep(INTERVALO)
 
-    if time.time() - ultimo_ssn > INTERVALO_SSN:
-        verificar_ssn()
-        ultimo_ssn = time.time()
-
-    time.sleep(INTERVALO_USGS)
 

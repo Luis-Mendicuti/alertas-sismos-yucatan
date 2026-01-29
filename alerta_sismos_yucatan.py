@@ -23,9 +23,9 @@ TELEGRAM_CHAT_ID = os.getenv("6185819291")
 
 def enviar_telegram(mensaje):
     try:
-        url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+        url = f"https://api.telegram.org/bot8349059546:AAGvF0oBTuath6yuWvWbvt1C2ejcG929egQ/sendMessage"
         payload = {
-            "chat_id": TELEGRAM_CHAT_ID,
+            "chat_id": 6185819291,
             "text": mensaje,
             "parse_mode": "Markdown"
         }
@@ -165,3 +165,4 @@ while True:
     except Exception as e:
         print("⚠️ Error:", e)
     time.sleep(INTERVALO)
+
